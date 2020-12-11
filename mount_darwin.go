@@ -101,7 +101,7 @@ func isBoringMountOSXFUSEError(err error) bool {
 }
 
 func receiveDeviceFD(ourSocketFD int) (*os.File, error) {
-	// Out-of-bands data. This is where the cmsg is stored in, and cmsg is
+	// Out-of-band data. This is where the cmsg is stored in, and cmsg is
 	// where the FD gets passed back to us. Here's a FreeBSD doc that's
 	// related: https://www.freebsd.org/cgi/man.cgi?query=recvmsg&sektion=2
 	// It's not darwin but should be similar enough.
