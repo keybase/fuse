@@ -1,16 +1,27 @@
 package fstestutil
 
 import (
-	"regexp"
 	"syscall"
 )
 
-var re = regexp.MustCompile(`\\(.)`)
-
-// unescape removes backslash-escaping. The escaped characters are not
-// mapped in any way; that is, unescape(`\n` ) == `n`.
+// unescape removes the backslash-escaping used by Darwin mount info for the
+// handful of characters we care about in tests.
 func unescape(s string) string {
-	return re.ReplaceAllString(s, `$1`)
+	buf := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			buf = append(buf, s[i])
+			continue
+		}
+		switch s[i+1] {
+		case '\\', ' ', '\t', '\n':
+			buf = append(buf, s[i+1])
+			i++
+		default:
+			buf = append(buf, s[i])
+		}
+	}
+	return string(buf)
 }
 
 func getMountInfo(mnt string) (*MountInfo, error) {

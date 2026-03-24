@@ -43,3 +43,9 @@ func noLocalCaches(conf *mountConfig) error {
 	conf.options["nolocalcaches"] = ""
 	return nil
 }
+
+func useFSKitBackend(conf *mountConfig) error {
+	conf.osxfuseBackend = "fskit"
+	conf.options["backend"] = "fskit"
+	return nil
+}

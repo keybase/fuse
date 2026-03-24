@@ -18,6 +18,28 @@ var (
 	errNotLoaded = errors.New("osxfuse is not loaded")
 )
 
+func isFSKitBackend(conf *mountConfig) bool {
+	return conf.osxfuseBackend == "fskit"
+}
+
+func defaultOSXFUSELocations(conf *mountConfig) []OSXFUSEPaths {
+	if isFSKitBackend(conf) {
+		return []OSXFUSEPaths{OSXFUSELocationV4}
+	}
+	return []OSXFUSEPaths{
+		OSXFUSELocationV4,
+		OSXFUSELocationV3,
+		OSXFUSELocationV2,
+	}
+}
+
+func mountBinary(loc OSXFUSEPaths, conf *mountConfig) string {
+	if isFSKitBackend(conf) && loc.MountFSKit != "" {
+		return loc.MountFSKit
+	}
+	return loc.Mount
+}
+
 func loadOSXFUSE(bin string) error {
 	cmd := exec.Command(bin)
 	cmd.Dir = "/"
@@ -272,22 +294,25 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 func mount(dir string, conf *mountConfig, ready chan<- struct{}, errp *error) (*os.File, error) {
 	locations := conf.osxfuseLocations
 	if locations == nil {
-		locations = []OSXFUSEPaths{
-			OSXFUSELocationV3,
-			OSXFUSELocationV2,
-		}
+		locations = defaultOSXFUSELocations(conf)
 	}
 	for _, loc := range locations {
-		if _, err := os.Stat(loc.Mount); os.IsNotExist(err) {
+		mountBin := mountBinary(loc, conf)
+		if mountBin == "" {
+			continue
+		}
+		if _, err := os.Stat(mountBin); os.IsNotExist(err) {
 			// try the other locations
 			continue
 		}
 
-		if err := loadMacFuseIfNeeded(loc.DevicePrefix, loc.Load); err != nil {
-			return nil, err
+		if !isFSKitBackend(conf) {
+			if err := loadMacFuseIfNeeded(loc.DevicePrefix, loc.Load); err != nil {
+				return nil, err
+			}
 		}
 		f, err := callMount(
-			loc.Mount, loc.DaemonVar, dir, conf, ready, errp)
+			mountBin, loc.DaemonVar, dir, conf, ready, errp)
 		if err != nil {
 			return nil, err
 		}
