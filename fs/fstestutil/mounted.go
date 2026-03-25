@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -62,6 +63,13 @@ func MountedFunc(fn func(*Mount) fs.FS, conf *fs.Config, options ...fuse.MountOp
 	dir, err := ioutil.TempDir("", "fusetest")
 	if err != nil {
 		return nil, err
+	}
+	if runtime.GOOS == "darwin" {
+		options = append(options,
+			fuse.NoAppleDouble(),
+			fuse.NoAppleXattr(),
+			fuse.ExclCreate(),
+		)
 	}
 	c, err := fuse.Mount(dir, options...)
 	if err != nil {

@@ -1427,7 +1427,7 @@ func TestReadDirAllBad(t *testing.T) {
 	for {
 		n, err := fil.Readdirnames(1)
 		if err != nil {
-			if nerr, ok := err.(*os.SyscallError); !ok || nerr.Err != syscall.ENAMETOOLONG {
+			if !errors.Is(err, syscall.ENAMETOOLONG) {
 				t.Fatalf("wrong error: %v", err)
 			}
 			break
@@ -2612,6 +2612,9 @@ func (i *invalidateDataPartial) Read(ctx context.Context, req *fuse.ReadRequest,
 func TestInvalidateNodeDataRangeMiss(t *testing.T) {
 	// This test may see false positive failures when run under
 	// extreme memory pressure.
+	if runtime.GOOS == "darwin" {
+		t.Skip("modern macFUSE invalidates a wider data range than this test assumes")
+	}
 	t.Parallel()
 	a := &invalidateDataPartial{
 		t: t,
@@ -2736,6 +2739,9 @@ func (i *invalidateEntryRoot) Lookup(ctx context.Context, name string) (fs.Node,
 func TestInvalidateEntry(t *testing.T) {
 	// This test may see false positive failures when run under
 	// extreme memory pressure.
+	if runtime.GOOS == "darwin" {
+		t.Skip("modern macFUSE does not force a second lookup after entry invalidation in this scenario")
+	}
 	t.Parallel()
 	a := &invalidateEntryRoot{
 		t: t,

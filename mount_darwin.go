@@ -18,6 +18,46 @@ var (
 	errNotLoaded = errors.New("osxfuse is not loaded")
 )
 
+func isFSKitBackend(conf *mountConfig) bool {
+	return conf.osxfuseBackend == "fskit"
+}
+
+func defaultOSXFUSELocations(conf *mountConfig) []OSXFUSEPaths {
+	if isFSKitBackend(conf) {
+		return []OSXFUSEPaths{OSXFUSELocationV4}
+	}
+	return []OSXFUSEPaths{
+		OSXFUSELocationV4,
+		OSXFUSELocationV3,
+		OSXFUSELocationV2,
+	}
+}
+
+func mountBinary(loc OSXFUSEPaths, conf *mountConfig) string {
+	if isFSKitBackend(conf) && loc.MountFSKit != "" {
+		return loc.MountFSKit
+	}
+	return loc.Mount
+}
+
+func mountArgs(bin string, dir string, conf *mountConfig) []string {
+	args := make([]string, 0, 6)
+	if isFSKitBackend(conf) {
+		args = append(args, "mount")
+	}
+	args = append(args,
+		"-o", conf.getOptions(),
+		// Tell osxfuse-kext how large our buffer is. It must split
+		// writes larger than this into multiple writes.
+		//
+		// OSXFUSE seems to ignore InitResponse.MaxWrite, and uses
+		// this instead.
+		"-o", "iosize="+strconv.FormatUint(maxWrite, 10),
+		dir,
+	)
+	return args
+}
+
 func loadOSXFUSE(bin string) error {
 	cmd := exec.Command(bin)
 	cmd.Dir = "/"
@@ -146,14 +186,7 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 	}
 	cmd := exec.Command(
 		bin,
-		"-o", conf.getOptions(),
-		// Tell osxfuse-kext how large our buffer is. It must split
-		// writes larger than this into multiple writes.
-		//
-		// OSXFUSE seems to ignore InitResponse.MaxWrite, and uses
-		// this instead.
-		"-o", "iosize="+strconv.FormatUint(maxWrite, 10),
-		dir,
+		mountArgs(bin, dir, conf)...,
 	)
 	cmd.Env = os.Environ()
 	// OSXFUSE <3.3.0
@@ -162,6 +195,9 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 	cmd.Env = append(cmd.Env, "MOUNT_OSXFUSE_CALL_BY_LIB=")
 	// OSXFUSE >=4.0.0
 	cmd.Env = append(cmd.Env, "_FUSE_CALL_BY_LIB=")
+	if isFSKitBackend(conf) {
+		cmd.Env = append(cmd.Env, "_FUSE_COMMVERS=2")
+	}
 
 	daemon := os.Args[0]
 	if daemonVar != "" {
@@ -227,7 +263,9 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 	theirFDClosed = true
 
 	helperErrCh := make(chan error, 1)
+	helperDone := make(chan struct{})
 	go func() {
+		defer close(helperDone)
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go lineLogger(&wg, "mount helper output", neverIgnoreLine, stdout)
@@ -262,6 +300,10 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 
 	deviceF, err := receiveDeviceFD(ourFD)
 	if err != nil {
+		<-helperDone
+		if *errp != nil {
+			return nil, *errp
+		}
 		return nil, fmt.Errorf(
 			"mount_osxfusefs: receiving device FD error: %v", err)
 	}
@@ -272,22 +314,25 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 func mount(dir string, conf *mountConfig, ready chan<- struct{}, errp *error) (*os.File, error) {
 	locations := conf.osxfuseLocations
 	if locations == nil {
-		locations = []OSXFUSEPaths{
-			OSXFUSELocationV3,
-			OSXFUSELocationV2,
-		}
+		locations = defaultOSXFUSELocations(conf)
 	}
 	for _, loc := range locations {
-		if _, err := os.Stat(loc.Mount); os.IsNotExist(err) {
+		mountBin := mountBinary(loc, conf)
+		if mountBin == "" {
+			continue
+		}
+		if _, err := os.Stat(mountBin); os.IsNotExist(err) {
 			// try the other locations
 			continue
 		}
 
-		if err := loadMacFuseIfNeeded(loc.DevicePrefix, loc.Load); err != nil {
-			return nil, err
+		if !isFSKitBackend(conf) {
+			if err := loadMacFuseIfNeeded(loc.DevicePrefix, loc.Load); err != nil {
+				return nil, err
+			}
 		}
 		f, err := callMount(
-			loc.Mount, loc.DaemonVar, dir, conf, ready, errp)
+			mountBin, loc.DaemonVar, dir, conf, ready, errp)
 		if err != nil {
 			return nil, err
 		}

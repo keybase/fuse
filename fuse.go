@@ -41,7 +41,7 @@
 //
 // The hellofs subdirectory contains a simple illustration of the fs.Serve approach.
 //
-// Service Methods
+// # Service Methods
 //
 // The required and optional methods for the FS, Node, and Handle interfaces
 // have the general form
@@ -60,7 +60,7 @@
 // including any []byte fields such as WriteRequest.Data or
 // SetxattrRequest.Xattr.
 //
-// Errors
+// # Errors
 //
 // Operations can return errors. The FUSE interface can only
 // communicate POSIX errno error numbers to file system clients, the
@@ -71,7 +71,7 @@
 // Error messages will be visible in the debug log as part of the
 // response.
 //
-// Interrupted Operations
+// # Interrupted Operations
 //
 // In some file systems, some operations
 // may take an undetermined amount of time.  For example, a Read waiting for
@@ -84,7 +84,7 @@
 // If an operation does not block for an indefinite amount of time, supporting
 // cancellation is not necessary.
 //
-// Authentication
+// # Authentication
 //
 // All requests types embed a Header, meaning that the method can
 // inspect req.Pid, req.Uid, and req.Gid as necessary to implement
@@ -93,11 +93,10 @@
 // AllowOther, AllowRoot), but does not enforce access modes (to
 // change this, see DefaultPermissions).
 //
-// Mount Options
+// # Mount Options
 //
 // Behavior and metadata of the mounted file system can be changed by
 // passing MountOption values to Mount.
-//
 package fuse // import "bazil.org/fuse"
 
 import (
@@ -155,6 +154,13 @@ func (e *MountpointDoesNotExistError) Error() string {
 // possible errors. Incoming requests on Conn must be served to make
 // progress.
 func Mount(dir string, options ...MountOption) (*Conn, error) {
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return nil, &MountpointDoesNotExistError{Path: dir}
+		}
+		return nil, err
+	}
+
 	conf := mountConfig{
 		options: make(map[string]string),
 	}

@@ -16,6 +16,7 @@ type mountConfig struct {
 	maxReadahead     uint32
 	initFlags        InitFlags
 	osxfuseLocations []OSXFUSEPaths
+	osxfuseBackend   string
 }
 
 func escapeComma(s string) string {
@@ -89,8 +90,8 @@ func VolumeName(name string) MountOption {
 //
 // Such file names are:
 //
-//     ._*
-//     .DS_Store
+//	._*
+//	.DS_Store
 //
 // OS X only.  Others ignore this option.
 func NoAppleDouble() MountOption {
@@ -119,6 +120,17 @@ func NoBrowse() MountOption {
 // OS X only.  Others ignore this option.
 func NoLocalCaches() MountOption {
 	return noLocalCaches
+}
+
+// FSKitBackend makes macFUSE use its FSKit backend on macOS instead of the
+// legacy kernel extension backend.
+//
+// This requires a macFUSE installation that provides the FSKit mounter, such
+// as macFUSE 5.x on macOS 15.4 or newer.
+//
+// OS X only. Others ignore this option.
+func FSKitBackend() MountOption {
+	return useFSKitBackend
 }
 
 // ExclCreate causes O_EXCL flag to be set for only "truly" exclusive creates,
@@ -271,6 +283,8 @@ type OSXFUSEPaths struct {
 	Load string
 	// Path of the mount helper, used for the actual mount operation.
 	Mount string
+	// Path of the FSKit mount helper, used when the FSKit backend is selected.
+	MountFSKit string
 	// Environment variable used to pass the path to the executable
 	// calling the mount helper.
 	DaemonVar string
@@ -282,6 +296,7 @@ var (
 		DevicePrefix: "/dev/macfuse",
 		Load:         "/Library/Filesystems/macfuse.fs/Contents/Resources/load_macfuse",
 		Mount:        "/Library/Filesystems/macfuse.fs/Contents/Resources/mount_macfuse",
+		MountFSKit:   "/Library/Filesystems/macfuse.fs/Contents/Resources/macfuse.app/Contents/MacOS/macfuse",
 		DaemonVar:    "_FUSE_DAEMON_PATH",
 	}
 	OSXFUSELocationV3 = OSXFUSEPaths{

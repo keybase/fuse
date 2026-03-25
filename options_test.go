@@ -89,6 +89,12 @@ func TestMountOptionFSNameEvilBackslash(t *testing.T) {
 }
 
 func TestMountOptionFSNameEvilBackslashDouble(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		// Modern macFUSE reports a doubled backslash in statfs mount info the
+		// same way as a single escaped backslash, so there is no longer enough
+		// information here to distinguish the two cases.
+		t.Skip("macFUSE collapses doubled backslashes in mount info on darwin")
+	}
 	// catch double-unescaping, if it were to happen
 	testMountOptionFSNameEvil(t, `\\`)
 }
