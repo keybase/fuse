@@ -40,6 +40,24 @@ func mountBinary(loc OSXFUSEPaths, conf *mountConfig) string {
 	return loc.Mount
 }
 
+func mountArgs(bin string, dir string, conf *mountConfig) []string {
+	args := make([]string, 0, 6)
+	if isFSKitBackend(conf) {
+		args = append(args, "mount")
+	}
+	args = append(args,
+		"-o", conf.getOptions(),
+		// Tell osxfuse-kext how large our buffer is. It must split
+		// writes larger than this into multiple writes.
+		//
+		// OSXFUSE seems to ignore InitResponse.MaxWrite, and uses
+		// this instead.
+		"-o", "iosize="+strconv.FormatUint(maxWrite, 10),
+		dir,
+	)
+	return args
+}
+
 func loadOSXFUSE(bin string) error {
 	cmd := exec.Command(bin)
 	cmd.Dir = "/"
@@ -168,14 +186,7 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 	}
 	cmd := exec.Command(
 		bin,
-		"-o", conf.getOptions(),
-		// Tell osxfuse-kext how large our buffer is. It must split
-		// writes larger than this into multiple writes.
-		//
-		// OSXFUSE seems to ignore InitResponse.MaxWrite, and uses
-		// this instead.
-		"-o", "iosize="+strconv.FormatUint(maxWrite, 10),
-		dir,
+		mountArgs(bin, dir, conf)...,
 	)
 	cmd.Env = os.Environ()
 	// OSXFUSE <3.3.0
@@ -184,6 +195,9 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 	cmd.Env = append(cmd.Env, "MOUNT_OSXFUSE_CALL_BY_LIB=")
 	// OSXFUSE >=4.0.0
 	cmd.Env = append(cmd.Env, "_FUSE_CALL_BY_LIB=")
+	if isFSKitBackend(conf) {
+		cmd.Env = append(cmd.Env, "_FUSE_COMMVERS=2")
+	}
 
 	daemon := os.Args[0]
 	if daemonVar != "" {
@@ -249,7 +263,9 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 	theirFDClosed = true
 
 	helperErrCh := make(chan error, 1)
+	helperDone := make(chan struct{})
 	go func() {
+		defer close(helperDone)
 		var wg sync.WaitGroup
 		wg.Add(2)
 		go lineLogger(&wg, "mount helper output", neverIgnoreLine, stdout)
@@ -284,6 +300,10 @@ func callMount(bin string, daemonVar string, dir string, conf *mountConfig,
 
 	deviceF, err := receiveDeviceFD(ourFD)
 	if err != nil {
+		<-helperDone
+		if *errp != nil {
+			return nil, *errp
+		}
 		return nil, fmt.Errorf(
 			"mount_osxfusefs: receiving device FD error: %v", err)
 	}
